@@ -3,7 +3,6 @@ package kz.gov.pki.osgi.layer.core
 import org.osgi.framework.Bundle
 import org.osgi.service.condpermadmin.Condition
 import org.osgi.service.condpermadmin.ConditionInfo
-import java.security.cert.X509Certificate
 import kz.gov.pki.kalkan.util.encoders.Hex
 import java.security.MessageDigest
 import kotlin.jvm.JvmStatic
@@ -35,7 +34,16 @@ class CertCondition {
 				false
 			}
 			LOG.info("Condition for ${bundle.symbolicName} is $match")
-			return if (match) Condition.TRUE else Condition.FALSE
+			return if (match) {
+				Condition.TRUE
+			} else {
+				try {
+					bundle.uninstall()	
+				} catch (e: Exception) {
+					LOG.error("Could not uninstall ${bundle.symbolicName}", e)
+				}
+				Condition.FALSE
+			}
 		}
 	}
 }

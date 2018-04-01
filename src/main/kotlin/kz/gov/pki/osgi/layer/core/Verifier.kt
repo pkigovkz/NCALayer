@@ -6,15 +6,13 @@ import kz.gov.pki.kalkan.jce.provider.cms.CMSSignedData
 import kz.gov.pki.kalkan.jce.provider.cms.SignerInformation
 import kz.gov.pki.osgi.layer.api.NCALayerJSON
 import kz.gov.pki.kalkan.x509.X509CertStoreSelector
-import java.security.Security
-import kz.gov.pki.kalkan.jce.provider.KalkanProvider
 import kz.gov.pki.kalkan.util.CollectionStore
 import kz.gov.pki.kalkan.util.Store
 
 fun verifyCMS(data: ByteArray, xstore: Store): String {
 	val cms = CMSSignedData(data)
 	val signers = cms.signerInfos
-	val isVerified = signers?.getSigners()?.firstOrNull()?.let { signer ->
+	val isVerified = signers?.signers?.firstOrNull()?.let { signer ->
 		signer as SignerInformation
 		val cert = xstore.getMatches(X509CertStoreSelector.getInstance(signer.sid)).first() as X509Certificate
 		with(cert) {

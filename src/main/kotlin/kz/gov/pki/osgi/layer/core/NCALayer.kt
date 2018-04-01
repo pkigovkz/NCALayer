@@ -6,26 +6,21 @@ import org.osgi.framework.BundleException
 import org.osgi.framework.Constants
 import java.io.File
 import java.nio.file.Paths
-import java.net.URI
 import java.util.zip.ZipFile
 import java.security.Policy
 import org.osgi.framework.BundleContext
 import org.osgi.service.condpermadmin.ConditionalPermissionAdmin
-import org.apache.felix.framework.security.SecurityConstants
 import org.slf4j.LoggerFactory
 import kotlin.jvm.JvmStatic
-import java.util.PriorityQueue
 import java.lang.IllegalArgumentException
 import java.nio.file.Files
 import java.nio.file.StandardOpenOption
 import org.apache.felix.framework.SecurityActivator
 import org.apache.felix.log.Activator
 import org.apache.felix.framework.util.FelixConstants
-import kz.gov.pki.osgi.layer.core.FelixLogger
 import java.security.Security
 import kz.gov.pki.kalkan.jce.provider.KalkanProvider
 import kz.gov.pki.osgi.layer.api.BundleJSON
-import kz.gov.pki.osgi.layer.api.NCALayerJSON
 import org.osgi.framework.Version
 import uk.org.lidalia.sysoutslf4j.context.SysOutOverSLF4J
 import javax.swing.JOptionPane
@@ -36,17 +31,17 @@ import java.security.AllPermission
 import java.nio.file.StandardCopyOption
 
 fun <T> loggerFor(clazz: Class<T>) = LoggerFactory.getLogger(clazz)
-val CORE_BUNDLESDIR_PROP = "ncalayer.bundlesdir"
-val CORE_VERSION_PROP = "ncalayer.version"
-val CORE_OSNAME_PROP = "ncalayer.osname"
-val CORE_LOCATION_PROP = "ncalayer.location"
+const val CORE_BUNDLESDIR_PROP = "ncalayer.bundlesdir"
+const val CORE_VERSION_PROP = "ncalayer.version"
+const val CORE_OSNAME_PROP = "ncalayer.osname"
+const val CORE_LOCATION_PROP = "ncalayer.location"
 val OSNAME = System.getProperty("os.name").toLowerCase().substringBefore(' ')
 val LOCATION_URI = NCALayer::class.java.protectionDomain.codeSource.location.toURI()
 val LOCATION = Paths.get(LOCATION_URI).toFile()
 val USER_HOME = File(System.getProperty("user.home"))
 val CURRENTOS = OSType.from(OSNAME)
-val UPDATE_FILENAME = "ncalayer.der"
-val CORE_VERSION = NCALayer::class.java.getPackage().implementationVersion ?: "1.0"
+const val UPDATE_FILENAME = "ncalayer.der"
+val CORE_VERSION = NCALayer::class.java.`package`.implementationVersion ?: "1.1"
 
 enum class OSType(val osname: String) {
 	MACOS("mac"),
@@ -61,7 +56,7 @@ enum class OSType(val osname: String) {
 val NCALAYER_HOME = File(when (CURRENTOS) {
 	OSType.MACOS -> File(USER_HOME, "Library/Application Support")
 	OSType.LINUX -> File(USER_HOME, ".config")
-	OSType.WINDOWS -> File(System.getenv("APPDATA"))
+	OSType.WINDOWS -> File(System.getenv("APPDATA")?:LOCATION.parentFile.parent)
 	else -> File(USER_HOME, ".config")
 }, "NCALayer")
 
@@ -72,6 +67,7 @@ val BUNDLES_DIR = File(NCALAYER_HOME, "bundles")
 object NCALayer {
 
 	init {
+		System.setProperty("jdk.http.auth.tunneling.disabledSchemes", "")
 		System.setProperty("ncalayer.mainlog", MAIN_LOG.path)
 		if (!BUNDLES_DIR.exists()) {
 			BUNDLES_DIR.mkdirs()
@@ -81,7 +77,7 @@ object NCALayer {
 	private val LOG = loggerFor(javaClass)
 
 	private fun getConditionalPermissionAdmin(context: BundleContext): ConditionalPermissionAdmin {
-		val ref = context.getServiceReference(ConditionalPermissionAdmin::class.java.getName());
+		val ref = context.getServiceReference(ConditionalPermissionAdmin::class.java.name)
 		return context.getService(ref) as ConditionalPermissionAdmin
 	}
 
@@ -92,7 +88,7 @@ object NCALayer {
 			if (!LOCATION.isDirectory) {
 				ZipFile(LOCATION).use { zf ->
 					jarBundleList.addAll(zf.entries().toList().
-							filter { it.name.startsWith("kncabundles/") && !it.isDirectory }.
+							filter { it.name.startsWith("kncabundles/") && !it.isDirectory && it.name.endsWith(".jar")}.
 							map { "/${it.name}" })
 				}
 			} else {
@@ -126,19 +122,16 @@ object NCALayer {
 	}
 
 	private fun updatePermissions(ctx: BundleContext, bjList: List<BundleJSON>) {
-		val permAdmin = getConditionalPermissionAdmin(ctx);
-		val permUpdate = permAdmin.newConditionalPermissionUpdate();
-		val permInfos = permUpdate.getConditionalPermissionInfos();
-		permInfos.clear();
-		val conditionInfoArgs = mutableListOf<String>()
-		for (bj in bjList) {
-			conditionInfoArgs.add("${bj.symname}|${bj.csernum}|${bj.chash}")
-		}
+		val permAdmin = getConditionalPermissionAdmin(ctx)
+		val permUpdate = permAdmin.newConditionalPermissionUpdate()
+		val permInfos = permUpdate.conditionalPermissionInfos
+		permInfos.clear()
+		val conditionInfoArgs = bjList.map { "${it.symname}|${it.csernum}|${it.chash}" }
 		permInfos.add(permAdmin.newConditionalPermissionInfo("Signed bundles",
-				arrayOf<ConditionInfo>(ConditionInfo(CertCondition::class.java.name, conditionInfoArgs.toTypedArray())),
-				arrayOf<PermissionInfo>(PermissionInfo(AllPermission::class.java.name, "*", "*")),
+				arrayOf(ConditionInfo(CertCondition::class.java.name, conditionInfoArgs.toTypedArray())),
+				arrayOf(PermissionInfo(AllPermission::class.java.name, "*", "*")),
 				ConditionalPermissionInfo.ALLOW))
-		permUpdate.commit();
+		permUpdate.commit()
 	}
 
 	@JvmStatic fun main(args: Array<String>) {
@@ -146,7 +139,7 @@ object NCALayer {
 		LOG.info("NCALayer $CORE_VERSION")
 		val provider = KalkanProvider()
 		Security.addProvider(provider)
-		SysOutOverSLF4J.sendSystemOutAndErrToSLF4J();
+		SysOutOverSLF4J.sendSystemOutAndErrToSLF4J()
 		val policyFile = if (LOCATION.isDirectory) {
 			"${LOCATION_URI}all.policy"
 		} else {
@@ -154,18 +147,21 @@ object NCALayer {
 		}
 
 		LOG.info(System.getProperty("os.name"))
+		LOG.info(System.getProperty("os.version"))
+		LOG.info(System.getProperty("java.home"))
+		LOG.info(System.getProperty("java.version"))
 		LOG.info(NCALAYER_HOME.toString())
 		LOG.info(LOCATION.toString())
 
 		try {
-			if (NCALayer::class.java.signers == null && NCALayer::class.java.getPackage().implementationVersion != null) {
+			if (NCALayer::class.java.signers == null && NCALayer::class.java.`package`.implementationVersion != null) {
 				throw SecurityException("Core is unsigned!")
 			}
 			val coreVer = Version.parseVersion(CORE_VERSION)
 
-			val ufexists = if (UPDATE_FILE.exists()) true else false
+			val ufexists = UPDATE_FILE.exists()
 
-			val ncalayerJSON = if (UPDATE_FILE.exists()) {
+			val ncalayerJSON = if (ufexists) {
 				val signedJSONData = UPDATE_FILE.readBytes()
 				val existJSON = retrieveJSON(signedJSONData)
 				if (coreVer.compareTo(Version.parseVersion(existJSON.version)) > 0) {
@@ -174,6 +170,8 @@ object NCALayer {
 			} else {
 				retrieveJSON(extractJSON())
 			}
+
+			LOG.info("System packages: ${ncalayerJSON.syspkgs}")
 
 			val map = mapOf<String, Any>(
 					//					Constants.FRAMEWORK_STORAGE_CLEAN to Constants.FRAMEWORK_STORAGE_CLEAN_ONFIRSTINIT,
@@ -185,7 +183,7 @@ object NCALayer {
 					Constants.FRAMEWORK_SECURITY to "osgi",
 					FelixConstants.LOG_LOGGER_PROP to FelixLogger(),
 					FelixConstants.LOG_LEVEL_PROP to System.getProperty("ncalayer.loglevel", "3"),
-					Constants.FRAMEWORK_SYSTEMPACKAGES_EXTRA to "javafx.beans.property,javafx.beans.value,javafx.scene.control.cell,javafx.scene.image,javafx.event,javafx.util,kz.gov.pki.osgi.layer.api,org.json,kotlin,kotlin.jvm.internal,kotlin.collections,org.osgi.service.log,org.slf4j,org.slf4j.impl,javax.smartcardio,javafx.application,javafx.collections,javafx.fxml,javafx.geometry,javafx.scene,javafx.scene.control,javafx.scene.layout,javafx.scene.paint,javafx.scene.text,javafx.scene.web,javafx.stage,javafx.util,javax.xml.parsers,org.w3c.dom,org.xml.sax,javax.net.ssl,javax.swing,javax.xml.namespace,javax.xml.stream,javax.xml.stream.events,javax.crypto,sun.security.jca,javax.crypto.spec,javax.servlet")
+					Constants.FRAMEWORK_SYSTEMPACKAGES_EXTRA to ncalayerJSON.syspkgs)
 
 			System.setProperty("java.security.policy", policyFile)
 			Policy.getPolicy().refresh()
@@ -196,11 +194,11 @@ object NCALayer {
 			SecurityActivator().start(ctx)
 			Activator().start(ctx)
 
-			updatePermissions(ctx, ncalayerJSON.bundles);
+			updatePermissions(ctx, ncalayerJSON.bundles)
 
 			val jsonVer = Version.parseVersion(ncalayerJSON.version)
 			val vercomp = coreVer.compareTo(jsonVer)
-			val unpack = if (vercomp < 0 || !ufexists) true else false
+			val unpack = vercomp < 0 || !ufexists
 
 			if (ctx.bundles.size == 1 || unpack) {
 				if (!initFromScratch(ctx, unpack)) {
@@ -209,7 +207,7 @@ object NCALayer {
 			}
 
 			LOG.info("Scanning bundles directory...")
-			Updater.scanBundlesDir(ctx)
+			Updater.scanBundlesDir(ctx, ncalayerJSON)
 
 			val allSymNames = ctx.bundles.map { it.symbolicName }.toSet()
 			if (!allSymNames.containsAll(ncalayerJSON.listRequiredSymNames())) {
@@ -217,8 +215,19 @@ object NCALayer {
 			}
 
 			ctx.bundles.forEach {
-				LOG.info("${it.symbolicName} : ${it.version}")
-				it.start()
+				LOG.info("(${it.symbolicName} ${it.version}) is ${it.state}")
+				when (it.state) {
+					Bundle.INSTALLED, Bundle.RESOLVED, Bundle.STARTING ->
+						try {
+							it.start()
+						} catch (e: BundleException) {
+							if (ncalayerJSON.listRequiredSymNames().contains(it.symbolicName)) {
+								throw e
+							} else {
+								LOG.error("Third-party bundle failed on start!", e)
+							}
+						}
+				}
 			}
 
 			LOG.info("Downloading updates info...")
@@ -226,8 +235,10 @@ object NCALayer {
 
 		} catch(e: Exception) {
 			LOG.error("Failed.", e)
-			JOptionPane.showMessageDialog(null, "Не удалось запустить NCALayer.\nПодробности в файле логирования $MAIN_LOG.",
-					"Ошибка запуска", JOptionPane.ERROR_MESSAGE);
+			JOptionPane.showMessageDialog(null, "Не удалось запустить NCALayer.\n" +
+					"${e.message}\n" +
+					"Подробности в файле логирования $MAIN_LOG.",
+					"Ошибка запуска", JOptionPane.ERROR_MESSAGE)
 			System.exit(0)
 		}
 	}
