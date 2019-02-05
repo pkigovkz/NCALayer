@@ -211,7 +211,9 @@ object NCALayer {
 
 			val allSymNames = ctx.bundles.map { it.symbolicName }.toSet()
 			if (!allSymNames.containsAll(ncalayerJSON.listRequiredSymNames())) {
-				throw IllegalArgumentException("Required core bundles not found!")
+				UPDATE_FILE.delete()
+				throw IllegalArgumentException("Не удалось загрузить необходимые модули! " +
+						"Попробуйте запустить приложение заново.")
 			}
 
 			ctx.bundles.forEach {

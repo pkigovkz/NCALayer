@@ -89,9 +89,7 @@ object Updater {
 				LOG.info("Connecting... ${defaultJSON.updurl}")
 				val updurl = URL(defaultJSON.updurl)
 				val con = if ("https" == updurl.protocol) {
-					val scon = updurl.openConnection() as HttpsURLConnection
-					scon.sslSocketFactory = createSSLContext().socketFactory
-					scon
+					updurl.openConnection() as HttpsURLConnection
 				} else {
 					updurl.openConnection() as HttpURLConnection
 				}
@@ -126,9 +124,7 @@ object Updater {
 					LOG.info("Downloading new version... $urlStr")
 					val url = URL(urlStr)
 					val jcon = if ("https" == url.protocol) {
-						val scon = url.openConnection() as HttpsURLConnection
-						scon.sslSocketFactory = createSSLContext().socketFactory
-						scon
+						url.openConnection() as HttpsURLConnection
 					} else {
 						url.openConnection() as HttpURLConnection
 					}
